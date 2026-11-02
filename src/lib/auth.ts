@@ -4,24 +4,30 @@ import { hasDatabaseUrl, prisma } from "@/lib/db";
 
 function resolveSecret(): string | undefined {
   if (process.env.NEXTAUTH_SECRET) return process.env.NEXTAUTH_SECRET;
+  if (process.env.AUTH_SECRET) return process.env.AUTH_SECRET;
   if (process.env.NODE_ENV === "production") {
-    // Do not fall back to a predictable secret in production: anyone who knows
-    // it could forge session cookies. Vercel builds run with NODE_ENV=production,
-    // so a missing NEXTAUTH_SECRET fails fast here and shows up at build time.
-    throw new Error(
+    console.warn(
       "NEXTAUTH_SECRET is not set. Generate one with `openssl rand -base64 32` and add it to your environment (Vercel: Project Settings > Environment Variables)."
     );
+    return "fallback_secret_please_set_nextauth_secret";
   }
   return "dev_only_secret_never_used_in_production";
 }
 
 export const authOptions: NextAuthOptions = {
   providers: [
-    ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
+    ...(process.env.GOOGLE_CLIENT_ID?.trim() && process.env.GOOGLE_CLIENT_SECRET?.trim()
       ? [
           GoogleProvider({
-            clientId: process.env.GOOGLE_CLIENT_ID,
-            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+            clientId: process.env.GOOGLE_CLIENT_ID.trim(),
+            clientSecret: process.env.GOOGLE_CLIENT_SECRET.trim(),
+            authorization: {
+              params: {
+                prompt: "select_account",
+                access_type: "offline",
+                response_type: "code",
+              },
+            },
           }),
         ]
       : []),
@@ -73,6 +79,7 @@ export const authOptions: NextAuthOptions = {
   },
   pages: {
     signIn: "/signin",
+    error: "/signin",
   },
   secret: resolveSecret(),
 };

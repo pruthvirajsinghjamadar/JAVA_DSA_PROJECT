@@ -1,19 +1,59 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
-import { signIn, signOut, useSession } from "next-auth/react";
+import { useSearchParams } from "next/navigation";
+import { signIn, signOut, useSession, getProviders } from "next-auth/react";
 import { getClientId } from "@/lib/client-id";
 
-export default function SignInPage() {
+function getErrorMessage(error: string | null): string | null {
+  if (!error) return null;
+  switch (error) {
+    case "Configuration":
+      return "Google Sign-In is not configured properly on the server. Please ensure GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set in your .env file.";
+    case "AccessDenied":
+      return "Access denied by Google. If your Google Cloud OAuth app is in 'Testing' mode, make sure your email is added under 'Test users' in the Google Cloud Console.";
+    case "OAuthSignin":
+      return "Could not initialize Google Sign-In. Please check your network and Google OAuth settings.";
+    case "OAuthCallback":
+      return "Google authentication callback failed. Check that 'http://localhost:3000/api/auth/callback/google' (or your production URL) is listed in Authorized redirect URIs in Google Cloud Console.";
+    case "OAuthCreateAccount":
+      return "Could not create user account during Google sign-in.";
+    case "Callback":
+      return "An error occurred during authentication callback.";
+    case "OAuthAccountNotLinked":
+      return "An account already exists with this email using a different sign-in method.";
+    default:
+      return `Authentication error: ${error}`;
+  }
+}
+
+function SignInContent() {
   const { data: session } = useSession();
+  const searchParams = useSearchParams();
+  const urlError = searchParams.get("error");
+  const authErrorMsg = getErrorMessage(urlError);
+
   const [email, setEmail] = useState("");
   const [msg, setMsg] = useState("");
   const [isError, setIsError] = useState(false);
+  const [hasGoogle, setHasGoogle] = useState<boolean | null>(null);
+  const [googleLoading, setGoogleLoading] = useState(false);
 
   const clientId = typeof window !== "undefined" ? getClientId() : "anon";
 
+  useEffect(() => {
+    getProviders()
+      .then((providers) => {
+        setHasGoogle(Boolean(providers && providers.google));
+      })
+      .catch(() => {
+        setHasGoogle(false);
+      });
+  }, []);
+
   const handleGoogleSignIn = () => {
+    setGoogleLoading(true);
     signIn("google", { callbackUrl: "/profile" });
   };
 
@@ -108,10 +148,46 @@ export default function SignInPage() {
       </div>
 
       <div className="panel signbox">
+        {/* Error notification from NextAuth callback */}
+        {authErrorMsg && (
+          <div
+            style={{
+              background: "rgba(234, 67, 53, 0.12)",
+              border: "1px solid var(--nob, #ea4335)",
+              borderRadius: "10px",
+              padding: "12px 14px",
+              fontSize: "13px",
+              color: "var(--nob, #ea4335)",
+              lineHeight: "1.45",
+            }}
+          >
+            <b>Sign-in notice:</b> {authErrorMsg}
+          </div>
+        )}
+
+        {/* Warning if Google OAuth credentials not found on server */}
+        {hasGoogle === false && (
+          <div
+            style={{
+              background: "rgba(245, 158, 11, 0.12)",
+              border: "1px solid #f59e0b",
+              borderRadius: "10px",
+              padding: "12px 14px",
+              fontSize: "13px",
+              color: "var(--fg)",
+              lineHeight: "1.45",
+            }}
+          >
+            <b>Google Sign-In is not configured:</b> <code>GOOGLE_CLIENT_ID</code> and{" "}
+            <code>GOOGLE_CLIENT_SECRET</code> are not set in the <code>.env</code> file.
+          </div>
+        )}
+
         {/* Google OAuth Button */}
         <button
           type="button"
           className="btn"
+          disabled={googleLoading || hasGoogle === false}
           onClick={handleGoogleSignIn}
           style={{
             display: "flex",
@@ -123,7 +199,8 @@ export default function SignInPage() {
             fontSize: "15px",
             fontWeight: 700,
             borderRadius: "12px",
-            cursor: "pointer",
+            cursor: googleLoading || hasGoogle === false ? "not-allowed" : "pointer",
+            opacity: hasGoogle === false ? 0.6 : 1,
           }}
         >
           <svg width="20" height="20" viewBox="0 0 24 24">
@@ -144,7 +221,7 @@ export default function SignInPage() {
               d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.34 0 3.26 2.64 1.28 6.61l3.99 3.15c.95-2.85 3.6-4.96 6.73-4.96z"
             />
           </svg>
-          Continue with Google
+          {googleLoading ? "Connecting to Google..." : "Continue with Google"}
         </button>
 
         <div style={{ textAlign: "center", margin: "10px 0", color: "var(--muted)", fontSize: "14px" }}>
@@ -178,5 +255,25 @@ export default function SignInPage() {
         </p>
       </div>
     </main>
+  );
+}
+
+export default function SignInPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="wrap" id="app" style={{ minHeight: "60vh", paddingTop: 40 }}>
+          <div className="crumbs">
+            <Link href="/">Home</Link> / Sign in
+          </div>
+          <div className="thead">
+            <h1>Sign in</h1>
+            <p className="sub">Loading...</p>
+          </div>
+        </main>
+      }
+    >
+      <SignInContent />
+    </Suspense>
   );
 }
